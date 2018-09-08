@@ -159,9 +159,11 @@ class MusicBar(object):
                 close access outFile
                 do shell script "echo " & (POSIX path of fileName)
             '''
-            path = AppleScript(script).run()
-
-            if path:
-                return path
+            try:
+                path = AppleScript(script).run()
+                if path:
+                    return path
+            except ScriptError:
+                pass
 
         return None
