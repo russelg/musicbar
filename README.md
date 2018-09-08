@@ -10,6 +10,8 @@ Download with `git` using:
 Dependencies:
 <br />`pyobjc`, `rumps` and `py-applescript`.
 
+![Screenshot](https://user-images.githubusercontent.com/1552840/45257652-73191200-b3dc-11e8-901e-b9b968c57fd6.png)
+
 ## Player Support
 Currently, the only tested players are **iTunes** and **Swinsian**.
 It has the ability to also support Vox and Spotify, but these have not been tested.
