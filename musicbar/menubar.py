@@ -21,7 +21,7 @@ rumps.debug_mode(True)
 app = MenuBar()
 
 
-@rumps.timer(2)
+@rumps.timer(5)
 def refresh(_=None) -> None:
     app.title = mb.get_title()
     app.menu.clear()
@@ -62,7 +62,7 @@ def build_menu() -> List[Any]:
 
         buttons_paused = [MenuItem(f'{Icons.play.value} Play', callback=cb(mb.play))]
         buttons_playing = [MenuItem(f'{Icons.pause.value} Pause', callback=cb(mb.pause)),
-                           MenuItem(f'{Icons.previous.value} Next', callback=cb(mb.next)),
+                           MenuItem(f'{Icons.next.value} Next', callback=cb(mb.next)),
                            MenuItem(f'{Icons.previous.value} Previous', callback=cb(mb.previous))]
 
         buttons = buttons_paused if track.player.status == PlayerStatus.PAUSED else buttons_playing
