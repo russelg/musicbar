@@ -1,29 +1,35 @@
 from dataclasses import dataclass
-from enum import Enum
-from typing import List, Any, Optional, Tuple
+from enum import Enum, auto
+from typing import List, Any, Optional, Union, Dict
 
 from applescript import AppleScript, ScriptError
 
 
-class Player(Enum):
-    iTunes: str = 'iTunes'
-    Swinsian: str = 'Swinsian'
-    Vox: str = 'Vox'
-    Spotify: str = 'Spotify'
+class PlayerApp(Enum):
+    iTunes = 'com.apple.itunes'
+    Swinsian = 'com.swinsian.Swinsian'
+    Vox = 'com.coppertino.Vox'
+    Spotify = 'com.spotify.client'
 
 
-class Icons(Enum):
-    def __str__(self) -> str:
-        return str(self.value)
+class ScrobbleApp(Enum):
+    LastFM = 'fm.last.Scrobbler'
+    NepTunes = 'pl.micropixels.NepTunes'
+    Bowtie = 'com.13bold.Bowtie'
 
-    music: str = '♫'
-    paused: str = '❙ ❙'
-    playing: str = '▶'
-    error: str = '✗'
-    pause: str = '⏸'
-    next: str = '⏩'
-    previous: str = '⏪'
-    play: str = '▶️'
+
+class PlayerStatus(Enum):
+    NOT_OPEN = auto()
+    PLAYING = auto()
+    PAUSED = auto()
+    STOPPED = auto()
+
+
+@dataclass
+class Player:
+    app: PlayerApp
+    status: PlayerStatus
+    scrobbling: bool
 
 
 @dataclass
@@ -31,118 +37,175 @@ class Track:
     title: str
     artist: str
     album: str
-    scrobbling: bool
     player: Player
-    paused: bool
 
 
-def run(app: str, qry: str) -> Any:
-    return AppleScript(f'tell application "{app}" to {qry}').run()
+class Icons(Enum):
+    music = '♫'
+    paused = '❙ ❙'
+    playing = '▶'
+    error = '✗'
+    pause = '⏸'
+    next = '⏩'
+    previous = '⏪'
+    play = '▶️'
+
+
+app_exists = AppleScript('''
+    on run {prog}
+        try
+            tell application "Finder" to get application file id prog
+            return true
+        on error
+            return false
+        end try
+    end run
+''')
+
+
+def run(app: Union[str, PlayerApp], qry: str) -> Any:
+    script = f'tell application id "{app}" to {qry}'
+    return AppleScript(script).run()
+
+
+def is_running(app: str) -> bool:
+    return AppleScript(f'application id "{app}" is running').run()
 
 
 class MusicBar(object):
-    APPS: List[Player] = [Player.iTunes, Player.Swinsian]
-    playing: List[Player] = []
-    paused: List[Player] = []
+    def __init__(self):
+        self._update_app_lists()
 
-    def update_playing_app(self) -> None:
-        self.playing.clear()
-        self.paused.clear()
-
-        for app_idx, app in enumerate(self.APPS):
-            app_state: bool = AppleScript(f'application "{app.value}" is running').run()
-            if app_state:
-                app_playing = run(app.value, 'player state as string')
-                if app_playing in ['paused', '0']:
-                    self.paused.append(app)
-                elif app_playing in ['playing', '1']:
-                    self.playing.append(app)
+    def _update_app_lists(self):
+        self.players = self.get_installed_players()
+        self.active_players = self.get_players(self.players)
+        self.scrobblers = self.get_installed_scrobblers()
+        self.active_scrobblers = self.get_scrobblers(self.scrobblers)
 
     @staticmethod
-    def open(app: Player) -> None:
-        run(app.value, 'activate')
+    def _get_installed(apps: Dict[str, Any]):
+        installed = []
+        for app in apps.values():
+            exists = app_exists.run(app.value)
+            if exists:
+                installed.append(app)
+        return installed
 
     @staticmethod
-    def play(app: Player) -> None:
-        run(app.value, 'play')
+    def get_installed_players() -> List[PlayerApp]:
+        return MusicBar._get_installed(PlayerApp.__members__)
 
     @staticmethod
-    def pause(app: Player) -> None:
-        run(app.value, 'pause')
+    def get_installed_scrobblers() -> List[ScrobbleApp]:
+        return MusicBar._get_installed(ScrobbleApp.__members__)
 
     @staticmethod
-    def next(app: Player) -> None:
-        run(app.value, 'next track')
-        MusicBar.play(app)
-
-    @staticmethod
-    def previous(app: Player) -> None:
-        run(app.value, 'previous track')
-        MusicBar.play(app)
-
-    @staticmethod
-    def get_track(app: Player, paused: bool = False) -> Optional[Track]:
+    def get_track(player: Player) -> Optional[Track]:
         try:
             track_query = 'name of current track as string'
             artist_query = 'artist of current track as string'
             album_query = 'album of current track as string'
 
-            scrobbling = 'application "NepTunes" is running'
-            scrobbling_active = True
-            if app == Player.iTunes:
-                # check if neptunes is running to see if itunes will scrobble
-                scrobbling_active = AppleScript(scrobbling).run()
-
-            if app == Player.Vox:
+            if player.app == PlayerApp.Vox:
                 # Vox uses a different syntax for track and artist names
                 track_query = 'track'
                 artist_query = 'artist'
+                album_query = 'album'
 
-            track = run(app.value, track_query)
-            artist = run(app.value, artist_query)
-            album = run(app.value, album_query)
+            track = run(player.app.value, track_query)
+            artist = run(player.app.value, artist_query)
+            album = run(player.app.value, album_query)
 
-            return Track(title=track, artist=artist, album=album,
-                         scrobbling=scrobbling_active, player=app, paused=paused)
-        except ScriptError:
+            return Track(title=track, artist=artist, album=album, player=player)
+        except ScriptError as e:
             return None
 
-    def get_active_player(self) -> Tuple[Optional[Player], Optional[bool]]:
-        self.update_playing_app()
+    @staticmethod
+    def get_players(apps: List[PlayerApp]) -> List[Player]:
+        players = []
+        for app in apps:
+            app_state = is_running(app.value)
+            if app_state:
+                app_playing = run(app.value, 'player state as string')
+                if app_playing in ['paused', '0']:
+                    status = PlayerStatus.PAUSED
+                elif app_playing in ['playing', '1']:
+                    status = PlayerStatus.PLAYING
+                else:
+                    status = PlayerStatus.STOPPED
 
-        if not self.playing and not self.paused:
-            return None, None
+                scrobblers = MusicBar.get_player_scrobblers(app)
+                players.append(Player(app, status, bool(scrobblers)))
 
-        paused = len(self.playing) == 0
-        if paused:
-            app = self.paused[-1]
+        return players
+
+    @staticmethod
+    def get_scrobblers(apps: List[ScrobbleApp]) -> List[ScrobbleApp]:
+        scrobblers = []
+        for app in apps:
+            app_state = is_running(app.value)
+            if app_state:
+                scrobblers.append(app)
+
+        return scrobblers
+
+    @staticmethod
+    def get_player_scrobblers(player: PlayerApp) -> List[Optional[ScrobbleApp]]:
+        possible = {
+            PlayerApp.iTunes: [ScrobbleApp.NepTunes, ScrobbleApp.LastFM, ScrobbleApp.Bowtie],
+            PlayerApp.Spotify: [ScrobbleApp.NepTunes, ScrobbleApp.LastFM, ScrobbleApp.Bowtie],
+            PlayerApp.Vox: [ScrobbleApp.LastFM],
+            PlayerApp.Swinsian: []
+        }
+
+        compatible = possible.get(player, [])
+        if len(compatible) == 0:
+            # None means no scrobbler is necessary (in-built)
+            return [None]
         else:
-            app = self.playing[-1]
+            # else return the running scrobblers
+            running = MusicBar.get_scrobblers(MusicBar.get_installed_scrobblers())
+            return [app for app in compatible if app in running]
 
-        return app, paused
+    @staticmethod
+    def get_active_player(players: List[Player]) -> Optional[Player]:
+        paused_apps = [player for player in players if player.status == PlayerStatus.PAUSED]
+        active_apps = [player for player in players if player.status == PlayerStatus.PLAYING]
+
+        if not paused_apps and not active_apps:
+            return None
+
+        if active_apps:
+            app = active_apps[-1]
+        else:
+            app = paused_apps[-1]
+
+        return app
 
     def get_active_track(self) -> Optional[Track]:
-        player, paused = self.get_active_player()
+        self._update_app_lists()
+        player = MusicBar.get_active_player(self.active_players)
         if not player:
             return None
 
-        return MusicBar.get_track(player, paused)
+        return MusicBar.get_track(player)
 
     def get_title(self, music_icon: bool = False) -> str:
         track = self.get_active_track()
         if not track:
-            return str(Icons.music)
+            return Icons.music.value
 
-        state_icon = Icons.paused if track.paused else Icons.playing
-        scrobble_warning = f' {Icons.error}' if not track.scrobbling else ''
-        music = f'{Icons.music}  ' if music_icon else ''
+        playback_icon = Icons.paused.value if track.player.status == PlayerStatus.PAUSED \
+            else Icons.playing.value
+        scrobble_warning = f' {Icons.error.value}' if not track.player.scrobbling else ''
+        music = f'{Icons.music.value}  ' if music_icon else ''
 
-        return f'{music}{state_icon}{scrobble_warning}  {track.title} - {track.artist}'
+        return f'{music}{playback_icon}{scrobble_warning}  {track.title} - {track.artist}'
 
     @staticmethod
-    def get_album_cover(player: Player) -> Optional[str]:
+    def get_album_cover(player: PlayerApp) -> Optional[str]:
         # only itunes supports grabbing art right now
-        if player == Player.iTunes:
+        if player == PlayerApp.iTunes:
             script = f'''
                 tell application "{player.value}" to tell artwork 1 of current track
                     set srcBytes to raw data
@@ -160,10 +223,30 @@ class MusicBar(object):
                 do shell script "echo " & (POSIX path of fileName)
             '''
             try:
-                path = AppleScript(script).run()
-                if path:
-                    return path
+                return AppleScript(script).run()
             except ScriptError:
                 pass
 
         return None
+
+    @staticmethod
+    def open(app: PlayerApp) -> None:
+        run(app.value, 'activate')
+
+    @staticmethod
+    def play(app: PlayerApp) -> None:
+        run(app.value, 'play')
+
+    @staticmethod
+    def pause(app: PlayerApp) -> None:
+        run(app.value, 'pause')
+
+    @staticmethod
+    def next(app: PlayerApp) -> None:
+        run(app.value, 'next track')
+        MusicBar.play(app)
+
+    @staticmethod
+    def previous(app: PlayerApp) -> None:
+        run(app.value, 'previous track')
+        MusicBar.play(app)

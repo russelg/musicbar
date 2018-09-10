@@ -3,11 +3,11 @@ import sys
 
 import AppKit
 
+info = AppKit.NSBundle.mainBundle().infoDictionary()
+info["LSUIElement"] = "1"
 # make it so we can run this from the root
 sys.path.insert(1, '../')
 sys.path.insert(1, '../musicbar')
 from musicbar import menubar
 
-info = AppKit.NSBundle.mainBundle().infoDictionary()
-info["LSBackgroundOnly"] = "1"
 menubar.main()
