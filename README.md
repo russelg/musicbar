@@ -10,7 +10,7 @@ Download with `git` using:
 Dependencies:
 <br />`pyobjc`, `rumps` and `py-applescript`.
 
-![Screenshot](https://user-images.githubusercontent.com/1552840/45257652-73191200-b3dc-11e8-901e-b9b968c57fd6.png)
+![Screenshot](https://sgfc.co/YbBH.png)
 
 ## Player Support
 Currently, the only tested players are **iTunes** and **Swinsian**.
