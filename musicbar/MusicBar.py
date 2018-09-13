@@ -40,7 +40,7 @@ class Track:
     player: Player
 
 
-class Icons(Enum):
+class Icons:
     music = '♫'
     paused = '❙ ❙'
     playing = '▶'
@@ -89,6 +89,7 @@ class MusicBar(object):
             exists = app_exists.run(app.value)
             if exists:
                 installed.append(app)
+
         return installed
 
     @staticmethod
@@ -190,17 +191,32 @@ class MusicBar(object):
 
         return MusicBar.get_track(player)
 
-    def get_title(self, music_icon: bool = False) -> str:
+    def get_title_data(self, music_icon: bool = False) -> Dict:
         track = self.get_active_track()
         if not track:
-            return Icons.music.value
+            return {
+                'icons': Icons.music,
+                'title': '',
+                'artist': ''
+            }
 
-        playback_icon = Icons.paused.value if track.player.status == PlayerStatus.PAUSED \
-            else Icons.playing.value
-        scrobble_warning = f' {Icons.error.value}' if not track.player.scrobbling else ''
-        music = f'{Icons.music.value}  ' if music_icon else ''
+        playback_icon = Icons.paused if track.player.status == PlayerStatus.PAUSED \
+            else Icons.playing
+        scrobble_warning = f' {Icons.error}' if not track.player.scrobbling else ''
+        music = f'{Icons.music}  ' if music_icon else ''
 
-        return f'{music}{playback_icon}{scrobble_warning}  {track.title} - {track.artist}'
+        return {
+            'icons': f'{music}{playback_icon}{scrobble_warning}',
+            'title': track.title,
+            'artist': track.artist
+        }
+
+    def get_title(self, music_icon: bool = False) -> str:
+        data = self.get_title_data(music_icon)
+        if data['title'] == '':
+            return f'{data["icons"]}'
+
+        return f'{data["icons"]}  {data["title"]} ー {data["artist"]}'
 
     @staticmethod
     def get_album_cover(player: PlayerApp) -> Optional[str]:

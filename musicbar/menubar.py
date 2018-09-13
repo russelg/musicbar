@@ -6,7 +6,7 @@ from Cocoa import (NSFont, NSFontAttributeName)
 from PyObjCTools.Conversion import propertyListFromPythonCollection
 from rumps import MenuItem, quit_application
 
-from .MusicBar import MusicBar, PlayerStatus, Icons
+from .MusicBar import MusicBar, PlayerStatus, Icons, Track
 
 mb = MusicBar()
 
@@ -17,15 +17,54 @@ class MenuBar(rumps.App):
                                       quit_button=None)
 
 
-rumps.debug_mode(True)
+rumps.debug_mode(False)
 app = MenuBar()
 
 
-@rumps.timer(5)
+def calc_string_length(title):
+    font = NSFont.menuFontOfSize_(0.0)
+    attributes = propertyListFromPythonCollection({NSFontAttributeName: font},
+                                                  conversionHelper=lambda x: x)
+
+    string = NSAttributedString.alloc().initWithString_attributes_(title, attributes)
+    return string.size().width
+
+
+@rumps.timer(2)
 def refresh(_=None) -> None:
-    app.title = mb.get_title()
+    title = mb.get_title()
+    size = calc_string_length(title)
+
+    # resize the title to fit
+    desired_width = 400
+    if size > desired_width:
+        data = mb.get_title_data()
+
+        i = 0
+        while calc_string_length(title) > desired_width:
+            i += 1
+            if len(data["title"]) > len(data["artist"]):
+                title = f'{data["icons"]}  {data["title"][:-i]}… ー {data["artist"]}'
+            else:
+                title = f'{data["icons"]}  {data["title"]} ー {data["artist"][:-i]}…'
+
+    app.title = title
+    track = mb.get_active_track()
+
+    # only rebuild menu when the track changes
+    if mb.previous_track != track:
+        app.menu.clear()
+        app.menu = build_menu(track)
+
+    mb.previous_track = track
+
+
+@rumps.timer(10)
+def refresh_menu(_=None) -> None:
+    track = mb.get_active_track()
     app.menu.clear()
-    app.menu = build_menu()
+    app.menu = build_menu(track)
+    mb.previous_track = track
 
 
 def make_font(text, font=None):
@@ -41,8 +80,8 @@ def make_font(text, font=None):
     return menuitem
 
 
-def build_menu() -> List[Any]:
-    track = mb.get_active_track()
+def build_menu(track: Track) -> List[Any]:
+    print('rebuilding menu...')
 
     def make_open(player):
         return lambda _: mb.open(player)
@@ -60,10 +99,10 @@ def build_menu() -> List[Any]:
 
             return inner
 
-        buttons_paused = [MenuItem(f'{Icons.play.value} Play', callback=cb(mb.play))]
-        buttons_playing = [MenuItem(f'{Icons.pause.value} Pause', callback=cb(mb.pause)),
-                           MenuItem(f'{Icons.next.value} Next', callback=cb(mb.next)),
-                           MenuItem(f'{Icons.previous.value} Previous', callback=cb(mb.previous))]
+        buttons_paused = [MenuItem(f'{Icons.play} Play', callback=cb(mb.play))]
+        buttons_playing = [MenuItem(f'{Icons.pause} Pause', callback=cb(mb.pause)),
+                           MenuItem(f'{Icons.next} Next', callback=cb(mb.next)),
+                           MenuItem(f'{Icons.previous} Previous', callback=cb(mb.previous))]
 
         buttons = buttons_paused if track.player.status == PlayerStatus.PAUSED else buttons_playing
 
@@ -74,9 +113,8 @@ def build_menu() -> List[Any]:
             art_menu = [MenuItem("", icon=art_path, dimensions=[192, 192], callback=lambda _: None),
                         None]
 
-        scrobble_message = ''
         if not track.player.scrobbling:
-            scrobble_message = f'{Icons.error.value} No scrobbler running'
+            scrobble_message = f'{Icons.error} No scrobbler running'
         else:
             scrobblers = []
             for scrobbler in mb.get_player_scrobblers(track.player.app):
@@ -111,5 +149,7 @@ def build_menu() -> List[Any]:
 
 
 def main():
+    mb.previous_track = None
     refresh()
+    refresh_menu()
     app.run()
