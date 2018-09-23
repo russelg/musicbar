@@ -1,3 +1,6 @@
+import threading
+import time
+import traceback
 from typing import List, Any, Callable
 
 import rumps
@@ -33,6 +36,19 @@ def debug_mode(choice):
 
 debug_mode(False)
 
+
+def every(delay, task):
+    next_time = time.time() + delay
+    while True:
+        time.sleep(max(0, next_time - time.time()))
+        try:
+            task()
+        except Exception:
+            traceback.print_exc()
+        # skip tasks if we are behind schedule:
+        next_time += (time.time() - next_time) // delay * delay + delay
+
+
 app = MenuBar()
 
 
@@ -45,8 +61,8 @@ def calc_string_length(title):
     return string.size().width
 
 
-@rumps.timer(2)
 def refresh(_=None) -> None:
+    _log('refreshing title...')
     title, track = mb.get_title()
     size = calc_string_length(title)
 
@@ -165,5 +181,7 @@ def build_menu(track: Track) -> List[Any]:
 def main():
     mb.previous_track = None
     refresh()
+    # use normal threads instead because issues with rumps
+    threading.Thread(target=lambda: every(2, refresh)).start()
     refresh_menu()
     app.run()

@@ -81,7 +81,11 @@ apps_running = AppleScript('''
 
 def run(app: Union[str, PlayerApp], qry: str) -> Any:
     script = f'tell application id "{app}" to {qry}'
-    return AppleScript(script).run()
+    try:
+        return AppleScript(script).run()
+    except ScriptError as e:
+        print(e)
+        return None
 
 
 class MusicBar(object):
