@@ -3,6 +3,7 @@ from typing import List, Any, Callable
 import rumps
 from AppKit import NSAttributedString
 from Cocoa import (NSFont, NSFontAttributeName)
+from Foundation import NSLog
 from PyObjCTools.Conversion import propertyListFromPythonCollection
 from rumps import MenuItem, quit_application
 
@@ -17,7 +18,21 @@ class MenuBar(rumps.App):
                                       quit_button=None)
 
 
-rumps.debug_mode(False)
+def _log(*_):
+    pass
+
+
+def debug_mode(choice):
+    """Enable/disable printing helpful information for debugging the program. Default is off."""
+    global _log
+    rumps.debug_mode(choice)
+    if choice:
+        def _log(*args):
+            NSLog(' '.join(map(str, args)))
+
+
+debug_mode(False)
+
 app = MenuBar()
 
 
@@ -32,7 +47,7 @@ def calc_string_length(title):
 
 @rumps.timer(2)
 def refresh(_=None) -> None:
-    title = mb.get_title()
+    title, track = mb.get_title()
     size = calc_string_length(title)
 
     # resize the title to fit
@@ -49,18 +64,17 @@ def refresh(_=None) -> None:
                 title = f'{data["icons"]}  {data["title"]} ー {data["artist"][:-i]}…'
 
     app.title = title
-    track = mb.get_active_track()
 
     # only rebuild menu when the track changes
     if mb.previous_track != track:
-        app.menu.clear()
-        app.menu = build_menu(track)
+        refresh_menu()
 
     mb.previous_track = track
 
 
-@rumps.timer(10)
+@rumps.timer(20)
 def refresh_menu(_=None) -> None:
+    # also rebuild menu every so often
     track = mb.get_active_track()
     app.menu.clear()
     app.menu = build_menu(track)
@@ -81,7 +95,7 @@ def make_font(text, font=None):
 
 
 def build_menu(track: Track) -> List[Any]:
-    print('rebuilding menu...')
+    _log('rebuilding menu...')
 
     def make_open(player):
         return lambda _: mb.open(player)
