@@ -1,40 +1,17 @@
-import threading
+import os
 import time
 import traceback
-from typing import List, Any, Callable
+from typing import Any, Callable, List
 
 import rumps
 from AppKit import NSAttributedString
-from Cocoa import (NSFont, NSFontAttributeName)
+from Cocoa import NSFont, NSFontAttributeName
 from Foundation import NSLog
 from PyObjCTools.Conversion import propertyListFromPythonCollection
-from rumps import MenuItem, quit_application
 
-from .MusicBar import MusicBar, PlayerStatus, Icons, Track
+from .MusicBar import Icons, MusicBar, PlayerStatus, Track
 
 mb = MusicBar()
-
-
-class MenuBar(rumps.App):
-    def __init__(self):
-        super(MenuBar, self).__init__('MusicBar', 'Your currently playing music',
-                                      quit_button=None)
-
-
-def _log(*_):
-    pass
-
-
-def debug_mode(choice):
-    """Enable/disable printing helpful information for debugging the program. Default is off."""
-    global _log
-    rumps.debug_mode(choice)
-    if choice:
-        def _log(*args):
-            NSLog(' '.join(map(str, args)))
-
-
-debug_mode(False)
 
 
 def every(delay, task):
@@ -49,9 +26,6 @@ def every(delay, task):
         next_time += (time.time() - next_time) // delay * delay + delay
 
 
-app = MenuBar()
-
-
 def calc_string_length(title):
     font = NSFont.menuFontOfSize_(0.0)
     attributes = propertyListFromPythonCollection({NSFontAttributeName: font},
@@ -59,42 +33,6 @@ def calc_string_length(title):
 
     string = NSAttributedString.alloc().initWithString_attributes_(title, attributes)
     return string.size().width
-
-
-def refresh(_=None) -> None:
-    _log('refreshing title...')
-    title, track = mb.get_title()
-    size = calc_string_length(title)
-
-    # resize the title to fit
-    desired_width = 400
-    if size > desired_width:
-        data = mb.get_title_data()
-
-        i = 0
-        while calc_string_length(title) > desired_width:
-            i += 1
-            if len(data["title"]) > len(data["artist"]):
-                title = f'{data["icons"]}  {data["title"][:-i]}… ー {data["artist"]}'
-            else:
-                title = f'{data["icons"]}  {data["title"]} ー {data["artist"][:-i]}…'
-
-    app.title = title
-
-    # only rebuild menu when the track changes
-    if mb.previous_track != track:
-        refresh_menu()
-
-    mb.previous_track = track
-
-
-@rumps.timer(20)
-def refresh_menu(_=None) -> None:
-    # also rebuild menu every so often
-    track = mb.get_active_track()
-    app.menu.clear()
-    app.menu = build_menu(track)
-    mb.previous_track = track
 
 
 def make_font(text, font=None):
@@ -110,78 +48,144 @@ def make_font(text, font=None):
     return menuitem
 
 
-def build_menu(track: Track) -> List[Any]:
-    _log('rebuilding menu...')
+def dummy_callback(_):
+    return None
 
-    def make_open(player):
-        return lambda _: mb.open(player)
 
-    players = ('Open Player', [MenuItem(f'{player.name}', callback=make_open(player))
-                               for player in mb.players])
+class MenuBar(rumps.App):
+    def __init__(self):
+        super(MenuBar, self).__init__(
+            'MusicBar', Icons.music, quit_button=None)
 
-    if track:
-        def cb(func) -> Callable[[Any], None]:
-            def inner(_: Any) -> None:
-                func(track.player.app)
+        self.previous_title = {
+            'title': None,
+            'size': 0.0
+        }
+        self.previous_track = None
+        # self.refresh()
+        # self.refresh_menu()
+        # self.force_refresh()
 
-                # refresh data when we do any action
-                refresh()
+    @rumps.timer(10)
+    def refresh_menu(self, _=None) -> None:
+        track = mb.get_active_track()
+        self.menu.clear()
+        self.menu = self.build_menu(track)
+        self.previous_track = track
 
-            return inner
-
-        buttons_paused = [MenuItem(f'{Icons.play} Play', callback=cb(mb.play))]
-        buttons_playing = [MenuItem(f'{Icons.pause} Pause', callback=cb(mb.pause)),
-                           MenuItem(f'{Icons.next} Next', callback=cb(mb.next)),
-                           MenuItem(f'{Icons.previous} Previous', callback=cb(mb.previous))]
-
-        buttons = buttons_paused if track.player.status == PlayerStatus.PAUSED else buttons_playing
-
-        # art supported in itunes right now
-        art_path = mb.get_album_cover(track.player.app)
-        art_menu = []
-        if art_path:
-            art_menu = [MenuItem("", icon=art_path, dimensions=[192, 192], callback=lambda _: None),
-                        None]
-
-        if not track.player.scrobbling:
-            scrobble_message = f'{Icons.error} No scrobbler running'
+    @rumps.timer(1)
+    def refresh(self, _=None) -> None:
+        title, track = mb.get_title()
+        if title == self.previous_title['title']:
+            size = self.previous_title['size']
         else:
-            scrobblers = []
-            for scrobbler in mb.get_player_scrobblers(track.player.app):
-                if scrobbler is None:
-                    scrobblers.append(track.player.app.name)
+            size = calc_string_length(title)
+
+        # resize the title to fit
+        desired_width = 350
+        if size > desired_width:
+            data = mb.get_title_data()
+
+            i = 0
+            while calc_string_length(title) > desired_width:
+                i += 1
+                if len(data["title"]) > len(data["artist"]):
+                    title = f'{data["icons"]}  {data["title"][:-i]}… ー {data["artist"]}'
                 else:
-                    scrobblers.append(scrobbler.name)
+                    title = f'{data["icons"]}  {data["title"]} ー {data["artist"][:-i]}…'
 
-            scrobble_message = f'Scrobbling using {", ".join(scrobblers)}'
+        self.title = title
+        self.previous_title = {
+            'title': title, 'size': size
+        }
 
-        scrobble_warning = [make_font(scrobble_message, NSFont.menuFontOfSize_(10.0)), None]
+        # only rebuild menu when the track changes
+        if self.previous_track != track:
+            self.refresh_menu()
 
-        return [
-            *buttons,
-            None,
-            *art_menu,
-            MenuItem(track.title, callback=lambda _: None),
-            track.artist,
-            make_font(track.album, NSFont.menuFontOfSize_(12.0)),
-            None,
-            f'Now playing on {track.player.app.name}',
-            *scrobble_warning,
-            players,
-            None,
-            MenuItem('Quit', callback=quit_application, key='q')
-        ]
-    else:
-        return ['No player open currently.',
+        self.previous_track = track
+
+    def force_refresh(self, _):
+        self.title = "…"
+        self.previous_title = {'title': None, 'size': 0.0}
+        self.refresh()
+        self.refresh_menu()
+
+    def build_menu(self, track: Track) -> List[Any]:
+        def make_open(player):
+            return lambda _: mb.open(player)
+
+        players = ('Open Player',
+                   [rumps.MenuItem(f'{player.name}',
+                                   callback=make_open(player))
+                    for player in mb.players])
+
+        refresh_entry = rumps.MenuItem(
+            'Force Refresh', callback=self.force_refresh, key='r')
+
+        if track:
+            def cb(func) -> Callable[[Any], None]:
+                def inner(_: Any) -> None:
+                    func(track.player.app)
+                    self.refresh()
+                return inner
+
+            buttons_paused = [
+                rumps.MenuItem(f'{Icons.play} Play', callback=cb(mb.play))]
+            buttons_playing = [rumps.MenuItem(f'{Icons.pause} Pause', callback=cb(mb.pause)),
+                               rumps.MenuItem(f'{Icons.next} Next',
+                                              callback=cb(mb.next)),
+                               rumps.MenuItem(f'{Icons.previous} Previous', callback=cb(mb.previous))]
+
+            buttons = buttons_paused if track.player.status == PlayerStatus.PAUSED else buttons_playing
+
+            # art supported in itunes right now
+            art_menu = []
+            art_path = mb.get_album_cover(track.player.app)
+            if art_path and os.path.isfile(art_path):
+                art_menu = [rumps.MenuItem(
+                    "", callback=dummy_callback, icon=art_path, dimensions=[192, 192]), None]
+
+            if not track.player.scrobbling:
+                scrobble_message = f'{Icons.error} No scrobbler running'
+            else:
+                scrobblers = []
+                for scrobbler in mb.get_player_scrobblers(track.player.app):
+                    if scrobbler is None:
+                        scrobblers.append(track.player.app.name)
+                    else:
+                        scrobblers.append(scrobbler.name)
+
+                scrobble_message = f'Scrobbling using {", ".join(scrobblers)}'
+
+            scrobbler_info = [
+                make_font(scrobble_message, NSFont.menuFontOfSize_(10.0)), None]
+
+            return [
+                *buttons,
+                None,
+                *art_menu,
+                rumps.MenuItem(track.title, callback=dummy_callback),
+                track.artist,
+                make_font(track.album, NSFont.menuFontOfSize_(12.0)),
+                None,
+                f'Now playing on {track.player.app.name}',
+                *scrobbler_info,
                 players,
                 None,
-                MenuItem('Quit', callback=quit_application, key='q')]
+                refresh_entry,
+                rumps.MenuItem(
+                    'Quit', callback=rumps.quit_application, key='q')
+            ]
+        else:
+            return ['No player open currently.',
+                    players,
+                    None,
+                    refresh_entry,
+                    rumps.MenuItem('Quit', callback=rumps.quit_application, key='q')]
 
+
+# rumps.debug_mode(False)
 
 def main():
-    mb.previous_track = None
-    refresh()
-    # use normal threads instead because issues with rumps
-    threading.Thread(target=lambda: every(2, refresh)).start()
-    refresh_menu()
-    app.run()
+    MenuBar().run()

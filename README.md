@@ -1,32 +1,38 @@
 # MusicBar
 A macOS menu bar item which shows your currently playing music.
 
-Download with `git` using:
-<br />`git clone https://github.com/russelg/musicbar && cd ./musicbar`
-<br />Then, install dependencies and the package with:
-<br />`python3.7 setup.py install`
-<br />Now you can <a href="#autorun">enable it on login using autorun.py</a>
-
-Dependencies:
-<br />`pyobjc`, `rumps` and `py-applescript`.
-
 ![Screenshot](https://sgfc.co/YbBH.png)
+
+Compiled app bundles are available under the Releases tab.
 
 ## Player Support
 Currently, the only tested players are **iTunes** and **Swinsian**.
-It has the ability to also support Vox and Spotify, but these have not been tested.
+It has the ability to also support Vox and Spotify, but these have not been well-tested as I do not use them.
 
-I am welcoming any PRs to fix support for these players, as well as requests (submit an issue) to support any other player.
+I am welcoming any PRs to fix support for these players (if needed), as well as requests (submit an issue) to support any other player.
 
-<div id="autorun"></div>
+<br />
 
-## Start on login (autorun)
+# Developers
 
-Use `autorun.py` after having installed through  `setup.py` to enable the automatic start of MusicBar. Run the command `python autorun.py enable` in your terminal to enable MusicBar on login. To disable MusicBar autorun, run `python autorun.py disable`, then you can always re-enable it again.
-
-## Notice
 This is untested on anything below Python 3.7. I can guarantee this will not work without modification on anything below 3.6 due to format strings.
 
 Do not use standard python that comes with macOS, install python ~3.7 with pip usually in `/usr/local/bin/python`, for example python from the brew package manager, e.g. `brew install python` or from the official website.
 
-To stop `musicbar`, press the item and press 'Quit'.
+## Dependencies
+
+`pyobjc`, `rumps` and `py-applescript`.
+
+Install dependencies using pipenv:
+<br />`pipenv install`
+
+
+## Building, developing and distributing
+
+A macOS .app executable (for distribution) can be made using:
+<br />`pipenv run python setup.py py2app`
+
+A macOS .app executable (for development) can be made using:
+<br />`pipenv run python setup.py py2app -A`
+
+Do not distribute the development .app bundle as this is non-portable.
