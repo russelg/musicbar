@@ -84,12 +84,6 @@ apps_exist = AppleScript('''
     end run
 ''')
 
-# apps_exist = JXA(
-#     path=os.path.join(os.path.dirname(os.path.realpath(__file__)), 'jxa/app_exists.js'))
-# apps_running = JXA(
-#     path=os.path.join(os.path.dirname(os.path.realpath(__file__)), 'jxa/app_running.js'))
-
-
 apps_running = AppleScript('''
     on run {appList}
         repeat with a from 1 to length of appList

@@ -1,6 +1,5 @@
 import os
-import time
-import traceback
+from dataclasses import dataclass
 from typing import Any, Callable, List
 
 import rumps
@@ -11,45 +10,35 @@ from PyObjCTools.Conversion import propertyListFromPythonCollection
 
 from .MusicBar import Icons, MusicBar, PlayerStatus, Track
 
-mb = MusicBar()
+
+def make_attributed_string(text, font=NSFont.menuFontOfSize_(0.0)):
+    attributes = propertyListFromPythonCollection(
+        {NSFontAttributeName: font}, conversionHelper=lambda x: x)
+
+    return NSAttributedString.alloc().initWithString_attributes_(text, attributes)
 
 
-def every(delay, task):
-    next_time = time.time() + delay
-    while True:
-        time.sleep(max(0, next_time - time.time()))
-        try:
-            task()
-        except Exception:
-            traceback.print_exc()
-        # skip tasks if we are behind schedule:
-        next_time += (time.time() - next_time) // delay * delay + delay
+def make_font(text, font=NSFont.menuFontOfSize_(0.0)):
+    attr_string = make_attributed_string(text, font)
+    menuitem = rumps.MenuItem("")
+    menuitem._menuitem.setAttributedTitle_(attr_string)
+    return menuitem
 
 
 def calc_string_length(title):
-    font = NSFont.menuFontOfSize_(0.0)
-    attributes = propertyListFromPythonCollection({NSFontAttributeName: font},
-                                                  conversionHelper=lambda x: x)
-
-    string = NSAttributedString.alloc().initWithString_attributes_(title, attributes)
-    return string.size().width
-
-
-def make_font(text, font=None):
-    if not font:
-        font = NSFont.menuFontOfSize_(0.0)
-
-    attributes = propertyListFromPythonCollection({NSFontAttributeName: font},
-                                                  conversionHelper=lambda x: x)
-
-    string = NSAttributedString.alloc().initWithString_attributes_(text, attributes)
-    menuitem = rumps.MenuItem("")
-    menuitem._menuitem.setAttributedTitle_(string)
-    return menuitem
+    attr_string = make_attributed_string(title)
+    return attr_string.size().width
 
 
 def dummy_callback(_):
     return None
+
+
+@dataclass
+class PreviousState:
+    title: str = None
+    title_width: float = 0.0
+    track: Track = None
 
 
 class MenuBar(rumps.App):
@@ -57,135 +46,116 @@ class MenuBar(rumps.App):
         super(MenuBar, self).__init__(
             'MusicBar', Icons.music, quit_button=None)
 
-        self.previous_title = {
-            'title': None,
-            'size': 0.0
-        }
-        self.previous_track = None
-        # self.refresh()
-        # self.refresh_menu()
-        # self.force_refresh()
+        self.mb = MusicBar()
+        self.previous = PreviousState()
 
     @rumps.timer(10)
     def refresh_menu(self, _=None) -> None:
-        track = mb.get_active_track()
-        self.menu.clear()
+        track = self.mb.get_active_track()
         self.menu = self.build_menu(track)
-        self.previous_track = track
+        self.previous.track = track
 
-    @rumps.timer(1)
+    @rumps.timer(2)
     def refresh(self, _=None) -> None:
-        title, track = mb.get_title()
-        if title == self.previous_title['title']:
-            size = self.previous_title['size']
+        title, track = self.mb.get_title()
+        if title == self.previous.title:
+            size = self.previous.title_width
         else:
             size = calc_string_length(title)
 
         # resize the title to fit
         desired_width = 350
         if size > desired_width:
-            data = mb.get_title_data()
-
-            i = 0
-            while calc_string_length(title) > desired_width:
-                i += 1
+            data = self.mb.get_title_data()
+            trim = 0
+            while size > desired_width:
+                trim += 1
                 if len(data["title"]) > len(data["artist"]):
-                    title = f'{data["icons"]}  {data["title"][:-i]}… ー {data["artist"]}'
+                    title = f'{data["icons"]}  {data["title"][:-trim]}… ー {data["artist"]}'
                 else:
-                    title = f'{data["icons"]}  {data["title"]} ー {data["artist"][:-i]}…'
+                    title = f'{data["icons"]}  {data["title"]} ー {data["artist"][:-trim]}…'
+                size = calc_string_length(title)
 
         self.title = title
-        self.previous_title = {
-            'title': title, 'size': size
-        }
 
         # only rebuild menu when the track changes
-        if self.previous_track != track:
+        if self.previous.track != track:
             self.refresh_menu()
 
-        self.previous_track = track
+        self.previous = PreviousState(
+            title=title, title_width=size, track=track)
 
     def force_refresh(self, _):
-        self.title = "…"
-        self.previous_title = {'title': None, 'size': 0.0}
+        self.title = f"{Icons.music} …"
+        self.previous = PreviousState()
         self.refresh()
-        self.refresh_menu()
 
     def build_menu(self, track: Track) -> List[Any]:
+        # clear menu before building
+        self.menu.clear()
+
         def make_open(player):
-            return lambda _: mb.open(player)
+            return lambda _: self.mb.open(player)
 
-        players = ('Open Player',
-                   [rumps.MenuItem(f'{player.name}',
-                                   callback=make_open(player))
-                    for player in mb.players])
+        always_visible = [
+            ('Open Player',
+             [rumps.MenuItem(f'{player.name}', callback=make_open(player))
+              for player in self.mb.players]),
+            None,
+            rumps.MenuItem('Force Refresh',
+                           callback=self.force_refresh, key='r'),
+            rumps.MenuItem('Quit', callback=rumps.quit_application, key='q')
+        ]
 
-        refresh_entry = rumps.MenuItem(
-            'Force Refresh', callback=self.force_refresh, key='r')
+        if not track:
+            return ['No player open currently.', *always_visible]
 
-        if track:
+        def make_menu_button(method):
             def cb(func) -> Callable[[Any], None]:
                 def inner(_: Any) -> None:
                     func(track.player.app)
                     self.refresh()
                 return inner
 
-            buttons_paused = [
-                rumps.MenuItem(f'{Icons.play} Play', callback=cb(mb.play))]
-            buttons_playing = [rumps.MenuItem(f'{Icons.pause} Pause', callback=cb(mb.pause)),
-                               rumps.MenuItem(f'{Icons.next} Next',
-                                              callback=cb(mb.next)),
-                               rumps.MenuItem(f'{Icons.previous} Previous', callback=cb(mb.previous))]
+            attr = method.lower()
+            return rumps.MenuItem(f'{getattr(Icons, attr)} {method}',
+                                  callback=cb(getattr(self.mb, attr)))
 
-            buttons = buttons_paused if track.player.status == PlayerStatus.PAUSED else buttons_playing
+        buttons_paused = [make_menu_button('Play')]
+        buttons_playing = [make_menu_button('Pause'),
+                           make_menu_button('Next'),
+                           make_menu_button('Previous')]
 
-            # art supported in itunes right now
-            art_menu = []
-            art_path = mb.get_album_cover(track.player.app)
-            if art_path and os.path.isfile(art_path):
-                art_menu = [rumps.MenuItem(
-                    "", callback=dummy_callback, icon=art_path, dimensions=[192, 192]), None]
+        buttons = buttons_paused if track.player.status == PlayerStatus.PAUSED else buttons_playing
 
-            if not track.player.scrobbling:
-                scrobble_message = f'{Icons.error} No scrobbler running'
-            else:
-                scrobblers = []
-                for scrobbler in mb.get_player_scrobblers(track.player.app):
-                    if scrobbler is None:
-                        scrobblers.append(track.player.app.name)
-                    else:
-                        scrobblers.append(scrobbler.name)
+        # art supported in itunes right now
+        art_menu = []
+        art_path = self.mb.get_album_cover(track.player.app)
+        if art_path and os.path.isfile(art_path):
+            art_menu = [rumps.MenuItem(
+                "", callback=dummy_callback, icon=art_path, dimensions=[192, 192]), None]
 
-                scrobble_message = f'Scrobbling using {", ".join(scrobblers)}'
-
-            scrobbler_info = [
-                make_font(scrobble_message, NSFont.menuFontOfSize_(10.0)), None]
-
-            return [
-                *buttons,
-                None,
-                *art_menu,
-                rumps.MenuItem(track.title, callback=dummy_callback),
-                track.artist,
-                make_font(track.album, NSFont.menuFontOfSize_(12.0)),
-                None,
-                f'Now playing on {track.player.app.name}',
-                *scrobbler_info,
-                players,
-                None,
-                refresh_entry,
-                rumps.MenuItem(
-                    'Quit', callback=rumps.quit_application, key='q')
-            ]
+        if not track.player.scrobbling:
+            scrobble_message = f'{Icons.error} No scrobbler running'
         else:
-            return ['No player open currently.',
-                    players,
-                    None,
-                    refresh_entry,
-                    rumps.MenuItem('Quit', callback=rumps.quit_application, key='q')]
+            scrobblers = map(lambda scrob: track.player.app.name if scrob is None else scrob.name,
+                             self.mb.get_player_scrobblers(track.player.app))
+            scrobble_message = f'Scrobbling using {", ".join(scrobblers)}'
 
+        return [
+            *buttons,
+            None,
+            *art_menu,
+            rumps.MenuItem(track.title, callback=dummy_callback),
+            track.artist,
+            make_font(track.album, NSFont.menuFontOfSize_(12.0)),
+            None,
+            f'Now playing on {track.player.app.name}',
+            make_font(scrobble_message, NSFont.menuFontOfSize_(10.0)),
+            None,
+            *always_visible
+        ]
 
-# rumps.debug_mode(False)
 
 def main():
     MenuBar().run()
