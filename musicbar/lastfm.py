@@ -21,12 +21,13 @@ TEMPLATE_SUCCESS = """
 <html>
     <head>
         <title>Successfully authenticated</title>
-        <script>
-            window.close();
-        </script>
     </head>
     <body>
         <p>Thanks for logging in with Last.fm! You may close this window now.</p>
+        <script>
+            window.open('','_parent','');
+            window.close();
+        </script>
     </body>
 </html>
 """
@@ -135,6 +136,9 @@ class LastFmHandler:
     def reset(self):
         with shelve.open(DATABASE) as shelf:
             del shelf['network']
+            shelf['scrobble'] = False
+
+        self.__init__()
         self._init_network()
 
     def make_session(self):

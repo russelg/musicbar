@@ -53,20 +53,22 @@ class MenuBar(rumps.App):
 
         self.mb = MusicBar()
         self.previous = PreviousState()
-        self.first_run = True
         self.interval = 10
         self.lastfm = LastFmHandler()
         self.history: List[str] = []
 
-        self.scrobble: bool = True
+        self.scrobble: bool = False
         with shelve.open(DATABASE) as shelf:
             if 'scrobble' in shelf:
                 self.scrobble = shelf['scrobble']
+            else:
+                shelf['scrobble'] = False
 
     def force_refresh(self, _):
         self.title = f"{Icons.music} …"
-        self.previous = PreviousState()
-        self.refresh()
+        # self.previous = PreviousState()
+        self.refresh_menu()
+        self.refresh(force=True)
 
     def set_scrobbling(self, scrobble: bool):
         self.scrobble = scrobble
@@ -79,7 +81,7 @@ class MenuBar(rumps.App):
         self.menu = self.build_menu()
 
     @rumps.timer(1)
-    def refresh(self, _=None) -> None:
+    def refresh(self, _=None, force: bool = False) -> None:
         player = self.mb.get_active_player()
         if not player:
             self.title = Icons.music
@@ -88,7 +90,7 @@ class MenuBar(rumps.App):
 
         title, track = player.get_title()
 
-        if title == self.previous.title:
+        if title == self.previous.title and not force:
             size = self.previous.title_width
         else:
             size = calc_string_length(title)
@@ -145,17 +147,20 @@ class MenuBar(rumps.App):
         def login_lastfm(_):
             self.title = f"{Icons.music} Logging into Last.fm, check your browser..."
             self.lastfm.make_session()
+            self.set_scrobbling(True)
             self.refresh_menu()
 
         def logout_lastfm(_):
             self.lastfm.reset()
             self.refresh_menu()
 
-        def toggle_scrobbling(sender):
+        def toggle_scrobbling(_):
             self.set_scrobbling(not self.scrobble)
-            sender.state = self.scrobble
+            self.refresh()
+            self.refresh_menu()
 
         if not self.lastfm.username:
+            self.set_scrobbling(False)
             return [
                 'Not logged in.',
                 None,
@@ -164,9 +169,8 @@ class MenuBar(rumps.App):
 
         history = ['No tracks scrobbled yet...']
         if self.history:
-            itms = list(reversed(self.history[-5:]))
             history = ['Last 5 Scrobbles']
-            for itm in itms:
+            for itm in reversed(self.history[-5:]):
                 history.append(
                     make_font(f'• {itm}', NSFont.menuFontOfSize_(12.0)))
 
@@ -234,7 +238,7 @@ class MenuBar(rumps.App):
         if not player.scrobbling:
             scrobble_message = f'{Icons.error} No scrobbler running'
         else:
-            scrobblers = map(lambda scrob: player.app.name if scrob is None else scrob.name,
+            scrobblers = map(lambda scrob: scrob.name,
                              self.mb.get_player_scrobblers(player.app))
             scrobble_message = f'Scrobbling using {", ".join(scrobblers)}'
 

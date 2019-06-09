@@ -1,3 +1,5 @@
+import os
+import plistlib
 import shelve
 from dataclasses import dataclass
 from enum import Enum, EnumMeta
@@ -215,30 +217,47 @@ class MusicBar:
 
         return players
 
+    def get_running_scrobblers(self, apps):
+        scrobblers = []
+
+        running = self._get_running(apps)
+        for app, app_state in running:
+            add = False
+
+            if app_state:
+                if app == ScrobbleApp.MusicBar:
+                    with shelve.open(DATABASE) as shelf:
+                        # exclude MusicBar if scrobbling is not enabled
+                        add = shelf.get('scrobble', False)
+                elif app == PlayerApp.Swinsian:
+                    # check if swinsian has lastfm configured
+                    plist_path = os.path.expanduser(
+                        '~/Library/Preferences/com.swinsian.Swinsian.plist')
+                    if os.path.exists(plist_path):
+                        try:
+                            with open(plist_path, 'rb') as f:
+                                plist = plistlib.load(f)
+                                add = plist.get('LastFMConfigured', False)
+                        except (IOError, FileNotFoundError):
+                            pass
+                else:
+                    add = True
+
+                if add:
+                    scrobblers.append(app)
+
+        return scrobblers
+
     def get_scrobblers(self) -> List[ScrobbleApp]:
         """Return a list of currently running scrobblers.
 
         Arguments:
-            apps {List[PlayerApp]} -- A list of scrobblers to check
+            apps {List[ScrobbleApp]} -- A list of scrobblers to check
 
         Returns:
             List[Player] -- The currently running scrobblers, given they are provided as input
         """
-        scrobblers = []
-
-        running = self._get_running(self.scrobblers)
-        for app, app_state in running:
-            if app == ScrobbleApp.MusicBar:
-                with shelve.open(DATABASE) as shelf:
-                    scrobble = shelf.get('scrobble', False)
-                    # exclude MusicBar if scrobbling is not enabled
-                    if not scrobble:
-                        continue
-
-            if app_state:
-                scrobblers.append(app)
-
-        return scrobblers
+        return self.get_running_scrobblers(self.scrobblers)
 
     def get_player_scrobblers(self, player: PlayerApp) -> List[Optional[ScrobbleApp]]:
         """Return a list of running scrobblers for the given Player.
@@ -257,15 +276,8 @@ class MusicBar:
             PlayerApp.Music: [ScrobbleApp.MusicBar]
         }
 
-        compatible = possible.get(player, None)
-        if compatible is None:
-            return []
-        elif not compatible:
-            # None means no scrobbler is necessary (in-built to player)
-            return [None]
-
-        # else return the running scrobblers
-        running = self.get_scrobblers()
+        compatible = possible.get(player, [])
+        running = self.get_running_scrobblers(compatible)
         return list(filter(lambda app: app in running, compatible))
 
     def _get_active_player(self) -> Optional[Player]:

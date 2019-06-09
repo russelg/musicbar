@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "f5ffbbb29e0924ca7574e54103b1489b17ffdd6b4ab6bae8866e039fe212bda4"
+            "sha256": "74e16560fff281015874bb8d8bd8d95b6f6c24591517297221dcc185e08cf84d"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -16,13 +16,13 @@
         ]
     },
     "default": {
-        "dataclasses": {
+        "appdirs": {
             "hashes": [
-                "sha256:454a69d788c7fda44efd71e259be79577822f5e3f53f029a22d08004e951dc9f",
-                "sha256:6988bd2b895eef432d562370bb707d540f32f7360ab13da45340101bc2307d84"
+                "sha256:9e5896d1372858f8dd3344faf4e5014d21849c756c8d5701f78f8a103b372d92",
+                "sha256:d8b24664561d0d34ddfaec54636d502d7cea6e29c3eaf68f3df6180863e2166e"
             ],
             "index": "pypi",
-            "version": "==0.6"
+            "version": "==1.4.3"
         },
         "py-applescript": {
             "hashes": [
