@@ -1,11 +1,11 @@
-import os
+import shelve
 from dataclasses import dataclass
 from enum import Enum, EnumMeta
 from typing import Any, Dict, List, Optional, Tuple
 
 from applescript import AppleScript, ScriptError, kMissingValue
 
-from .enums import Icons, PlayerApp, PlayerStatus, ScrobbleApp, Track
+from .enums import DATABASE, Icons, PlayerApp, PlayerStatus, ScrobbleApp, Track
 from .utils import apps_exist, apps_running, get_itunes_art, run
 
 
@@ -40,18 +40,20 @@ class Player:
                     set trackname to {track_query}
                     set trackartist to {artist_query}
                     set trackalbum to {album_query}
-                    return {{trackname, trackartist, trackalbum}}
+                    set trackposition to player position
+                    set tracklength to duration of current track
+                    return {{trackname, trackartist, trackalbum, trackposition, tracklength}}
                 end tell
             '''
 
-            def missing(val):
-                if val == kMissingValue:
-                    val = ''
-                return val
+            results = list(
+                map(lambda x: x if x != kMissingValue else '', AppleScript(script).run()))
 
-            results = list(map(missing, AppleScript(script).run()))
-
-            return Track(title=results[0], artist=results[1], album=results[2])
+            return Track(title=results[0],
+                         artist=results[1],
+                         album=results[2],
+                         position=int(results[3]),
+                         duration=int(results[4]))
         except ScriptError as error:
             print('error: ', error)
             return None
@@ -143,7 +145,7 @@ class Player:
         return res
 
 
-class MusicBar(object):
+class MusicBar:
     """Interface to obtain information from music player apps and control them"""
 
     def __init__(self):
@@ -226,6 +228,13 @@ class MusicBar(object):
 
         running = self._get_running(self.scrobblers)
         for app, app_state in running:
+            if app == ScrobbleApp.MusicBar:
+                with shelve.open(DATABASE) as shelf:
+                    scrobble = shelf.get('scrobble', False)
+                    # exclude MusicBar if scrobbling is not enabled
+                    if not scrobble:
+                        continue
+
             if app_state:
                 scrobblers.append(app)
 
@@ -241,15 +250,18 @@ class MusicBar(object):
             List[Optional[ScrobbleApp]] -- [description]
         """
         possible = {
-            PlayerApp.iTunes: [ScrobbleApp.NepTunes, ScrobbleApp.LastFM, ScrobbleApp.Bowtie],
-            PlayerApp.Spotify: [ScrobbleApp.NepTunes, ScrobbleApp.LastFM, ScrobbleApp.Bowtie],
-            PlayerApp.Vox: [ScrobbleApp.LastFM],
-            PlayerApp.Swinsian: []
+            PlayerApp.iTunes: [ScrobbleApp.MusicBar, ScrobbleApp.NepTunes, ScrobbleApp.LastFM, ScrobbleApp.Bowtie],
+            PlayerApp.Spotify: [ScrobbleApp.MusicBar, ScrobbleApp.NepTunes, ScrobbleApp.LastFM, ScrobbleApp.Bowtie],
+            PlayerApp.Vox: [ScrobbleApp.MusicBar, ScrobbleApp.LastFM],
+            PlayerApp.Swinsian: [ScrobbleApp.MusicBar, PlayerApp.Swinsian],
+            PlayerApp.Music: [ScrobbleApp.MusicBar]
         }
 
-        compatible = possible.get(player, [])
-        if not compatible:
-            # None means no scrobbler is necessary (in-built)
+        compatible = possible.get(player, None)
+        if compatible is None:
+            return []
+        elif not compatible:
+            # None means no scrobbler is necessary (in-built to player)
             return [None]
 
         # else return the running scrobblers

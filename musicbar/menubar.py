@@ -1,7 +1,7 @@
 import os
+import shelve
 from dataclasses import dataclass
 from typing import Any, Callable, List
-from threading import Lock
 
 import rumps
 from AppKit import NSAttributedString
@@ -9,9 +9,10 @@ from Cocoa import NSFont, NSFontAttributeName
 from Foundation import NSLog
 from PyObjCTools.Conversion import propertyListFromPythonCollection
 
-from .enums import Icons, PlayerStatus, Track
-from .utils import run
+from .enums import DATABASE, Icons, PlayerStatus, Track
+from .lastfm import LastFmHandler
 from .MusicBar import MusicBar
+from .utils import run
 
 
 def make_attributed_string(text, font=NSFont.menuFontOfSize_(0.0)):
@@ -54,11 +55,23 @@ class MenuBar(rumps.App):
         self.previous = PreviousState()
         self.first_run = True
         self.interval = 10
+        self.lastfm = LastFmHandler()
+        self.history: List[str] = []
+
+        self.scrobble: bool = True
+        with shelve.open(DATABASE) as shelf:
+            if 'scrobble' in shelf:
+                self.scrobble = shelf['scrobble']
 
     def force_refresh(self, _):
         self.title = f"{Icons.music} …"
         self.previous = PreviousState()
         self.refresh()
+
+    def set_scrobbling(self, scrobble: bool):
+        self.scrobble = scrobble
+        with shelve.open(DATABASE) as shelf:
+            shelf['scrobble'] = self.scrobble
 
     # @rumps.timer(10)
     def refresh_menu(self, _=None) -> None:
@@ -103,8 +116,72 @@ class MenuBar(rumps.App):
             self.interval = 10
 
         self.title = title
+
+        prev = self.previous.track
+        if self.scrobble:
+            if prev:
+                # position check accounts for repeating same track
+                if not prev.equals(track) or track.position < 1:
+                    # new track, updating now playing
+                    if track and player.status == PlayerStatus.PLAYING:
+                        self.lastfm.update_now_playing(track)
+
+                    # The track must be longer than 30 seconds.
+                    # And the track has been played for at least half its duration,
+                    # or for 4 minutes (whichever occurs earlier.)
+                    # (from last.fm API documentation)
+                    if prev.duration >= 30 and prev.position >= min(prev.duration/2, 240):
+                        self.lastfm.scrobble(prev)
+                        self.history.append(prev)
+                        self.refresh_menu()
+            else:
+                if track and player.status == PlayerStatus.PLAYING:
+                    self.lastfm.update_now_playing(track)
+
         self.previous = PreviousState(
             title=title, title_width=size, track=track, status=player.status)
+
+    def build_lastfm_menu(self) -> List[Any]:
+        def login_lastfm(_):
+            self.title = f"{Icons.music} Logging into Last.fm, check your browser..."
+            self.lastfm.make_session()
+            self.refresh_menu()
+
+        def logout_lastfm(_):
+            self.lastfm.reset()
+            self.refresh_menu()
+
+        def toggle_scrobbling(sender):
+            self.set_scrobbling(not self.scrobble)
+            sender.state = self.scrobble
+
+        if not self.lastfm.username:
+            return [
+                'Not logged in.',
+                None,
+                rumps.MenuItem('Log in with Last.fm...', callback=login_lastfm)
+            ]
+
+        history = ['No tracks scrobbled yet...']
+        if self.history:
+            itms = list(reversed(self.history[-5:]))
+            history = ['Last 5 Scrobbles']
+            for itm in itms:
+                history.append(
+                    make_font(f'• {itm}', NSFont.menuFontOfSize_(12.0)))
+
+        scrobble_enabled = rumps.MenuItem(
+            'Enable scrobbling', callback=toggle_scrobbling)
+        scrobble_enabled.state = self.scrobble
+
+        return [
+            f'Logged in as {self.lastfm.username}',
+            scrobble_enabled,
+            None,
+            *history,
+            None,
+            rumps.MenuItem('Log out...', callback=logout_lastfm)
+        ]
 
     def build_menu(self) -> List[Any]:
         def make_open(p):
@@ -114,6 +191,8 @@ class MenuBar(rumps.App):
             ('Open Player',
              [rumps.MenuItem(f'{p.name}', callback=make_open(p))
               for p in self.mb.players]),
+            None,
+            ('Last.fm Scrobbling', self.build_lastfm_menu()),
             None,
             rumps.MenuItem('Force Refresh',
                            callback=self.force_refresh, key='r'),
