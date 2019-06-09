@@ -1,9 +1,18 @@
+import os
 from dataclasses import dataclass
 from enum import Enum, auto
 
+from appdirs import AppDirs
+
+dirs = AppDirs('MusicBar', 'SGFC')
+
 LASTFM_API_KEY = 'dcd6fcdca1678d1c08f773d428e7d838'
 LASTFM_API_SECRET = '506ba5415b3e11f9c7bf16b0acee5598'
-DATABASE = 'musicbar_options'
+
+if not os.path.exists(dirs.user_data_dir):
+    os.makedirs(dirs.user_data_dir)
+
+DATABASE = os.path.join(dirs.user_data_dir, 'musicbar_options.bin')
 
 
 @dataclass
